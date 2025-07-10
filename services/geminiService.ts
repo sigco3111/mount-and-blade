@@ -1,7 +1,8 @@
 
 
+
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { BattleResult, CharacterBackground, Player, Location, Unit, Quest, Item, EquipmentSlot, Companion } from '../types';
+import { BattleResult, CharacterBackground, Player, Location, Unit, Quest, Item, EquipmentSlot, Companion, GameEvent } from '../types';
 import { UNITS, ITEMS, FACTIONS } from "../constants";
 
 let ai: GoogleGenAI | null = null;
@@ -422,6 +423,81 @@ export const getAIDestinationForBountyQuest = async (quest: Quest, locations: Re
     return { data: null, tokens };
   } catch (error) {
     console.error("Error getting AI destination for bounty quest:", error);
+    throw error;
+  }
+};
+
+export const generateTravelEvent = async (player: Player, from: Location, to: Location): Promise<{ data: GameEvent | null; tokens: number }> => {
+  if (!ai) {
+    console.error("AI not initialized. Cannot generate travel event.");
+    return { data: null, tokens: 0 };
+  }
+
+  const totalArmySize = Object.values(player.army).reduce((sum, count) => sum + count, 0) + player.companions.length;
+
+  const prompt = `
+    You are a Dungeon Master for a Mount & Blade inspired web game.
+    Generate a random travel event for a player journeying from "${from.name}" to "${to.name}".
+    The region is generally described as: "${to.description}".
+
+    Player Info:
+    - Name: ${player.name}
+    - Renown: ${player.renown}
+    - Gold: ${player.gold}
+    - Army Size: ${totalArmySize}
+    - Faction: ${player.factionId ? FACTIONS[player.factionId].name : 'Unaligned'}
+    - HP: ${player.hp}/${100} ${player.isWounded ? '(Wounded)' : ''}
+
+    Event Generation Rules:
+    1.  Create a unique event with a title and a descriptive narrative (2-3 sentences). The event should be plausible for the Mount & Blade world.
+    2.  Provide 2-3 choices for the player. Each choice MUST have a 'text' (what the button says) and a 'resultNarrative' (what happens when the choice is picked).
+    3.  Choices can have consequences:
+        - goldChange: (positive or negative number)
+        - renownChange: (positive or negative number)
+        - hpChange: (positive or negative number, for player HP)
+        - itemChanges: an object with itemId as key and quantity as value (e.g., { "tools": 1, "salt": -2 }). Use item IDs from this list: ${Object.keys(ITEMS).join(', ')}.
+        - startBattle: an object to trigger a battle, with 'enemyName' and 'enemySize'. The enemy size should be relative to the player's army size.
+    4.  The event should be balanced. High risk, high reward. A safe option with no reward.
+    5.  Example Event Ideas:
+        - A stranded merchant asks for help. Choices: help for a reward, rob them, ignore them.
+        - A group of deserters from a recent battle. Choices: recruit them (risk), fight them, avoid them.
+        - An old, forgotten shrine. Choices: pray (small random buff), desecrate (small random curse/reward), ignore.
+        - An ambush by bandits. Choices: fight, try to bribe, try to run.
+    6.  The response MUST BE ONLY a valid JSON object in the specified format. Do not include any other text, reasoning, or markdown fences.
+
+    JSON Output Format:
+    {
+      "id": "string (unique kebab-case id, e.g., 'stranded-merchant-uxkhal-road')",
+      "title": "string (in Korean)",
+      "narrative": "string (in Korean)",
+      "choices": [
+        {
+          "text": "string (in Korean)",
+          "resultNarrative": "string (in Korean)",
+          "goldChange": null,
+          "renownChange": null,
+          "hpChange": null,
+          "itemChanges": null,
+          "startBattle": null
+        }
+      ]
+    }
+  `;
+
+  try {
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 1.2,
+      },
+    });
+    const tokens = response.usageMetadata?.totalTokenCount || 0;
+    const event = parseJsonResponse<GameEvent>(response.text);
+    return { data: event, tokens };
+  } catch (error) {
+    console.error("Error generating travel event:", error);
     throw error;
   }
 };

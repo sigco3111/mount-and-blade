@@ -1,1 +1,19 @@
- 
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 배경 원형 -->
+  <circle cx="256" cy="256" r="248" fill="#1a202c" stroke="#a0aec0" stroke-width="16"/>
+  
+  <!-- 검과 방패 아이콘 -->
+  <g transform="translate(80, 80) scale(0.7)">
+    <!-- 검 -->
+    <path d="M340 120L420 40L380 80L340 120Z" fill="#d69e2e"/>
+    <path d="M340 120L160 300L200 340L380 160L340 120Z" fill="#d69e2e"/>
+    <rect x="145" y="315" width="60" height="20" transform="rotate(-45 145 315)" fill="#d69e2e"/>
+    
+    <!-- 방패 -->
+    <path d="M120 140V300C120 340 180 380 250 400C320 380 380 340 380 300V140H120Z" fill="#4a5568" stroke="#a0aec0" stroke-width="12"/>
+    
+    <!-- 방패 문양 -->
+    <path d="M250 180L290 230L250 330L210 230L250 180Z" fill="#d69e2e"/>
+  </g>
+</svg> 

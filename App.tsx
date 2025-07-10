@@ -1,13 +1,15 @@
 
 
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GamePhase, Player, CharacterBackground, LogEntry, Location, BattleResult, BattleOutcome, Quest, Item, EquipmentSlot, Companion, PlayerEnterprise, AILord, MarketGood } from './types';
-import { initializeAi, verifyApiKey, generateCharacter, simulateBattle, getTavernRumor, generateQuest, getAIDestinationForBountyQuest } from './services/geminiService';
+import { GamePhase, Player, CharacterBackground, LogEntry, Location, BattleResult, BattleOutcome, Quest, Item, EquipmentSlot, Companion, PlayerEnterprise, AILord, MarketGood, GameEvent, GameEventChoice } from './types';
+import { initializeAi, verifyApiKey, generateCharacter, simulateBattle, getTavernRumor, generateQuest, getAIDestinationForBountyQuest, generateTravelEvent } from './services/geminiService';
 import StartScreen from './components/StartScreen';
 import GameScreen from './components/GameScreen';
 import ConfirmModal from './components/ConfirmModal';
 import ErrorModal from './components/ErrorModal';
 import ApiKeyManager from './components/ApiKeyManager';
+import TravelEventModal from './components/TravelEventModal';
 import { LOCATIONS, TRADE_GOODS, UNITS, ITEMS, FACTIONS, COMPANIONS, ENTERPRISE_TYPES, AI_LORDS } from './constants';
 import { SKILLS } from './skills';
 
@@ -17,6 +19,8 @@ const XP_FOR_NEXT_LEVEL_BASE = 500;
 const MAX_HP = 100;
 
 type ApiKeyStatus = 'loading' | 'env' | 'local' | 'none' | 'invalid';
+type TravelEventState = GameEvent & { destinationId: string };
+
 
 const usePrevious = <T,>(value: T): T | undefined => {
   const ref = useRef<T | undefined>(undefined);
@@ -111,6 +115,8 @@ const App: React.FC = () => {
   const [isApiKeyLoading, setIsApiKeyLoading] = useState<boolean>(false);
   const [logIdCounter, setLogIdCounter] = useState<number>(0);
   const [questOffer, setQuestOffer] = useState<Quest | null>(null);
+  const [travelEvent, setTravelEvent] = useState<TravelEventState | null>(null);
+  const [isResolvingEvent, setIsResolvingEvent] = useState<boolean>(false);
   const [highlightedLocationId, setHighlightedLocationId] = useState<string | null>(null);
   const [statChanges, setStatChanges] = useState<{ key: number, gold: number, renown: number }>({ key: 0, gold: 0, renown: 0 });
   const [wars, setWars] = useState<Record<string, string[]>>({
@@ -132,8 +138,15 @@ const App: React.FC = () => {
       setIsApiKeyLoading(true);
       const envKey = process.env.API_KEY;
       if (envKey) {
-        initializeAi(envKey);
-        setApiKeyStatus('env');
+        const isValid = await verifyApiKey(envKey);
+        if (isValid) {
+            initializeAi(envKey);
+            setApiKeyStatus('env');
+        } else {
+            // Environment key is present but invalid. Treat as 'invalid'.
+            // Do not fall back to local storage, as the environment key should have priority.
+            setApiKeyStatus('invalid');
+        }
         setIsApiKeyLoading(false);
         return;
       }
@@ -748,11 +761,11 @@ const App: React.FC = () => {
   }, [addLogEntry, currentLocationId, updateMarketPrices, updateTokenUsage]);
 
   const completeTravel = useCallback((locationId: string) => {
-    const location = locations[locationId];
     setCurrentLocationId(locationId);
-    addLogEntry(`${location.name}에 도착했습니다.`, 'system');
+    addLogEntry(`${locations[locationId].name}에 도착했습니다.`, 'system');
 
     if (player?.factionId) {
+      const location = locations[locationId];
       const playerFaction = player.factionId;
       const locationFaction = location.factionId;
       const playerWars = wars[playerFaction] || [];
@@ -816,19 +829,45 @@ const App: React.FC = () => {
       }
     }
   }, [player, addLogEntry, wars, locations, checkForLevelUp, companions]);
-  
-  const handleTravel = useCallback((locationId: string) => {
-    if (isLoading || !player) return;
-    
-    setDay(d => {
-        const newDay = d + 1;
-        addLogEntry(`1일이 지났습니다. (현재 ${newDay}일차)`, 'system');
-        return newDay;
-    });
 
+  const handleTravel = useCallback(async (locationId: string) => {
+    if (isLoading || !player) return;
+
+    const EVENT_CHANCE = 0.25;
+    if (apiKeyStatus === 'env' || apiKeyStatus === 'local') {
+      if(Math.random() < EVENT_CHANCE) {
+          setIsLoading(true);
+          try {
+              const from = locations[currentLocationId];
+              const to = locations[locationId];
+              const { data, tokens } = await generateTravelEvent(player, from, to);
+              updateTokenUsage(tokens);
+              if (data) {
+                  setTravelEvent({ ...data, destinationId: locationId });
+              } else {
+                  // If event generation fails, proceed with normal travel
+                  setDay(d => d + 1);
+                  completeTravel(locationId);
+              }
+          } catch(error) {
+              console.error("Error generating travel event:", error);
+              if (error && error.toString().includes('429')) {
+                  setApiError("API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.");
+              }
+              setDay(d => d + 1);
+              completeTravel(locationId);
+          } finally {
+              setIsLoading(false);
+          }
+          return;
+      }
+    }
+    
+    setDay(d => d + 1);
+    addLogEntry(`1일이 지났습니다. (현재 ${day + 1}일차)`, 'system');
     completeTravel(locationId);
-  }, [isLoading, player, addLogEntry, completeTravel]);
-  
+  }, [isLoading, player, addLogEntry, completeTravel, day, locations, currentLocationId, apiKeyStatus, updateTokenUsage]);
+
   const getCompanionSkillBonus = useCallback((skill: string): number => {
     if (!player) return 0;
     return player.companions.reduce((total, compId) => {
@@ -940,6 +979,74 @@ const App: React.FC = () => {
 
     return checkForLevelUp(p);
   }, [addLogEntry, companions, checkForLevelUp, getCompanionSkillBonus]);
+
+  const handleEventResolution = useCallback(async (choice: GameEventChoice, destinationId: string) => {
+      if (!player) return;
+      
+      setIsResolvingEvent(true);
+      addLogEntry(choice.resultNarrative, 'event');
+      
+      let p = { ...player };
+
+      // Apply stat changes
+      if (choice.goldChange) p.gold += choice.goldChange;
+      if (choice.renownChange) p.renown = Math.max(0, p.renown + choice.renownChange);
+      if (choice.hpChange) p.hp = Math.max(0, Math.min(MAX_HP, p.hp + choice.hpChange));
+      
+      if (p.hp <= 0) {
+          p.isWounded = true;
+          p.hp = 1;
+          addLogEntry("당신은 정신을 잃었습니다...", 'battle');
+      }
+
+      const newInventory = { ...p.inventory };
+      if (choice.itemChanges) {
+          for (const [itemId, quantity] of Object.entries(choice.itemChanges)) {
+              newInventory[itemId] = (newInventory[itemId] || 0) + quantity;
+              if (newInventory[itemId] <= 0) {
+                  delete newInventory[itemId];
+              }
+          }
+      }
+      p.inventory = newInventory;
+      
+      setPlayer(p);
+      setTravelEvent(null);
+
+      // Trigger battle if required
+      if (choice.startBattle) {
+          addLogEntry(`${choice.startBattle.enemyName} ${choice.startBattle.enemySize}명이 공격해옵니다!`, 'battle');
+          
+          try {
+              const playerWars = p.factionId ? (wars[p.factionId] || []) : [];
+              const effectiveTactics = getEffectiveSkillLevel(p, companions, 'tactics');
+              const effectiveSurgery = getEffectiveSkillLevel(p, companions, 'surgery');
+              const { data: battleResult, tokens } = await simulateBattle(p, choice.startBattle.enemyName, choice.startBattle.enemySize, playerWars, companions, effectiveTactics, effectiveSurgery);
+              updateTokenUsage(tokens);
+              
+              if (battleResult) {
+                  const playerAfterBattle = handleBattleResult(p, battleResult);
+                  setPlayer(playerAfterBattle);
+              } else {
+                  addLogEntry("전투 시뮬레이션 중 알 수 없는 오류가 발생했습니다.", "system");
+              }
+          } catch(error) {
+              console.error("Error in event battle:", error);
+              setApiError("전투 시뮬레이션 중 오류 발생.");
+          }
+          
+          // Travel might be cancelled after a battle
+          addLogEntry(`예기치 못한 전투로 인해, 당신은 현재 위치에 머무릅니다.`, 'system');
+          
+      } else {
+          // If no battle, complete the travel
+          setDay(d => d + 1);
+          addLogEntry(`1일이 지났습니다. (현재 ${day + 1}일차)`, 'system');
+          completeTravel(destinationId);
+      }
+
+      setIsResolvingEvent(false);
+  }, [player, companions, wars, handleBattleResult, addLogEntry, completeTravel, day, updateTokenUsage]);
 
   const handleRecruit = useCallback(() => {
     if (!player) return;
@@ -1837,7 +1944,7 @@ const App: React.FC = () => {
               locations={locations}
               currentLocation={locations[currentLocationId]}
               log={log}
-              isLoading={totalIsLoading}
+              isLoading={totalIsLoading || isResolvingEvent}
               apiKeyStatus={apiKeyStatus}
               questOffer={questOffer}
               statChanges={statChanges}
@@ -1900,6 +2007,13 @@ const App: React.FC = () => {
             title="API 오류"
             message={apiError}
             onClose={() => setApiError(null)}
+        />
+      )}
+      {travelEvent && player && (
+        <TravelEventModal 
+          event={travelEvent}
+          isResolving={isResolvingEvent}
+          onResolve={(choice) => handleEventResolution(choice, travelEvent.destinationId)}
         />
       )}
       {renderContent()}
