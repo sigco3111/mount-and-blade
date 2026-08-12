@@ -2,7 +2,7 @@
 
 Mount & Blade 세계관에서 영향을 받은 텍스트 기반 AI RPG입니다. 아무것도 없는 상태에서 시작하여 당신만의 부대를 만들고, AI가 생성하는 텍스트 기반 모험을 통해 칼라디아의 역사에 당신을 기록하세요.
 
-실행주소1 : https://mount-and-blade.vercel.app/
+실행주소1 : https://sigco3111.github.io/mount-and-blade/
 
 실행주소2 : https://dev-canvas-pi.vercel.app/
 
