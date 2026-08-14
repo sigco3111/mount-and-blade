@@ -2,9 +2,11 @@
 
 Mount & Blade 세계관에서 영향을 받은 텍스트 기반 AI RPG입니다. 아무것도 없는 상태에서 시작하여 당신만의 부대를 만들고, AI가 생성하는 텍스트 기반 모험을 통해 칼라디아의 역사에 당신을 기록하세요.
 
-실행주소1 : https://sigco3111.github.io/mount-and-blade/
+라이브 데모 : https://sigco3111.github.io/mount-and-blade/
 
-실행주소2 : https://dev-canvas-pi.vercel.app/
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-222222?style=for-the-badge&logo=githubpages)](https://sigco3111.github.io/mount-and-blade/)
+
+> **참고**: AI 콘텐츠 생성은 Google Gemini API 키가 필요합니다 (`process.env.GEMINI_API_KEY`). 키가 없으면 AI 기반 세계 생성/퀘스트/전투 서사 등이 비활성화되며, 기본 인터페이스/저장/불러오기 등 핵심 기능은 정상 작동합니다.
 
 ## ✨ 주요 기능
 
@@ -33,7 +35,34 @@ Mount & Blade 세계관에서 영향을 받은 텍스트 기반 AI RPG입니다.
 *   **AI**: Google Gemini API (`gemini-2.5-flash`)
 *   **설정**: 별도의 빌드 과정 없이 `esm.sh`를 통해 모듈을 가져와 가볍고 빠르게 실행됩니다.
 
+## 🚀 배포 (Deployment)
+
+이 저장소는 GitHub Actions 또는 수동 gh-pages 브랜치 푸시로 배포됩니다. `vite.config.ts`에 `base: '/mount-and-blade/'`가 박혀 있어 빌드 결과가 gh-pages 서브경로에서 정상 작동합니다.
+
+```bash
+npm install
+npm run build
+npx gh-pages -d dist
+```
+
+---
+
 ## 🚀 시작하기
+
+### GitHub Pages 빌드 (정식)
+
+```bash
+npm install
+npm run dev          # http://localhost:5173
+npm run build        # vite build → dist/
+npm run preview      # serve dist/
+```
+
+### 정적 서버로 직접 실행 (개발/테스트용)
+
+이 프로젝트는 esm.sh CDN 의존성으로 빌드 없이도 작동합니다. 로컬에서 빠르게 실행하려면:
+
+### API 키 설정
 
 이 게임을 플레이하려면 Google Gemini API 키가 필요합니다.
 
